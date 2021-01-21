@@ -233,8 +233,8 @@ class Trainer(object):
 
         can_path = '%s_step%d.candidate'%(self.args.result_path,step)
         gold_path = '%s_step%d.gold' % (self.args.result_path, step)
-        with open(can_path, 'w') as save_pred:
-            with open(gold_path, 'w') as save_gold:
+        with open(can_path, 'w', encoding='utf8') as save_pred: # sh geändert with open(can_path, 'w') as save_pred:
+            with open(gold_path, 'w', encoding='utf8') as save_gold: # sh geändert  with open(gold_path, 'w') as
                 with torch.no_grad():
                     for batch in test_iter:
                         src = batch.src
@@ -265,6 +265,7 @@ class Trainer(object):
                             sent_scores = sent_scores.cpu().data.numpy()
                             selected_ids = np.argsort(-sent_scores, 1)
                         # selected_ids = np.sort(selected_ids,1)
+                        # sh hinzu, Threshold fuer score
                         for i, idx in enumerate(selected_ids):
                             _pred = []
                             if(len(batch.src_str[i])==0):
@@ -278,8 +279,8 @@ class Trainer(object):
                                         _pred.append(candidate)
                                 else:
                                     _pred.append(candidate)
-
-                                if ((not cal_oracle) and (not self.args.recall_eval) and len(_pred) == 3):
+                                    #if ((not cal_oracle) and (not self.args.recall_eval) and len(_pred) == 3):
+                                if ((not cal_oracle) and (not self.args.recall_eval) and len(_pred) == 1): # sh experiment 20200827 Anpassung länge, vorher_:
                                     break
 
                             _pred = '<q>'.join(_pred)
@@ -296,6 +297,11 @@ class Trainer(object):
         if(step!=-1 and self.args.report_rouge):
             rouges = test_rouge(self.args.temp_dir, can_path, gold_path)
             logger.info('Rouges at step %d \n%s' % (step, rouge_results_to_str(rouges)))
+            print('Wir sind im ROUGE') # sh zum testen
+        else:
+            print('Wir sind nicht im ROUGE')
+            print('step= ' + str(step))
+            print('rouge= ' + str(self.args.report_rouge))
         self._report_step(0, step, valid_stats=stats)
 
         return stats
