@@ -7,6 +7,8 @@ import os
 import re
 import subprocess
 import time
+import random
+import csv
 from os.path import join as pjoin
 
 import torch
@@ -22,18 +24,26 @@ def load_json(p, lower):
     source = []
     tgt = []
     flag = False
-    for sent in json.load(open(p))['sentences']:
+    for sent in json.load(open(p, encoding='utf-8'))['sentences']: # SH geändert for sent in json.load(open(p))['sentences']:
         tokens = [t['word'] for t in sent['tokens']]
         if (lower):
             tokens = [t.lower() for t in tokens]
-        if (tokens[0] == '@highlight'):
+        if (tokens[0] == '@highlight') or (tokens[0] == '@songtitle'):
             flag = True
+            # tgt.append(tokens[1:]) # sh hinzugefügt
             continue
         if (flag):
             tgt.append(tokens)
-            flag = False
+            # flag = False
         else:
-            source.append(tokens)
+            if '@songtitle' not in tokens:  # sh hinzugefügt to avoid empty tgts
+                source.append(tokens)
+            else:
+                ind = tokens.index('@songtitle')
+                source.append(tokens[:ind-1])
+                flag = True
+                title = tokens[ind+1:]
+                tgt.append(title)
 
     source = [clean(' '.join(sent)).split() for sent in source]
     tgt = [clean(' '.join(sent)).split() for sent in tgt]
@@ -204,8 +214,9 @@ def format_to_bert(args):
         datasets = ['train', 'valid', 'test']
     for corpus_type in datasets:
         a_lst = []
-        for json_f in glob.glob(pjoin(args.raw_path, '*' + corpus_type + '.*.json')):
-            real_name = json_f.split('/')[-1]
+        # testing sh before = "C:/Users/Simon H/Documents/MSc/MA/programming/BertSum"
+        for json_f in glob.glob(pjoin(args.raw_path, '.' + corpus_type + '.*.json')):  # sh geändert for json_f in glob.glob(pjoin(args.raw_path, '*' + corpus_type + '.*.json')):
+            real_name = json_f.split('\\')[-1]  # sh geändert real_name = json_f.split('/')[-1]
             a_lst.append((json_f, args, pjoin(args.save_path, real_name.replace('json', 'bert.pt'))))
         print(a_lst)
         pool = Pool(args.n_cpus)
@@ -224,11 +235,12 @@ def tokenize(args):
     stories = os.listdir(stories_dir)
     # make IO list file
     print("Making list of files to tokenize...")
-    with open("mapping_for_corenlp.txt", "w") as f:
+    with open("mapping_for_corenlp.txt", "w", encoding='utf-8') as f: # SH geändert encoding --> encoding utf 8
         for s in stories:
             if (not s.endswith('story')):
                 continue
             f.write("%s\n" % (os.path.join(stories_dir, s)))
+    # command = ['java', 'edu.stanford.nlp.pipeline.StanfordCoreNLP' ,'-annotators', 'tokenize,ssplit', '-ssplit.boundaryTokenRegex', 'never', '-filelist', 'mapping_for_corenlp.txt', '-outputFormat', 'json', '-outputDirectory', tokenized_stories_dir] # sh geändert siehe unten
     command = ['java', 'edu.stanford.nlp.pipeline.StanfordCoreNLP' ,'-annotators', 'tokenize,ssplit', '-ssplit.newlineIsSentenceBreak', 'always', '-filelist', 'mapping_for_corenlp.txt', '-outputFormat', 'json', '-outputDirectory', tokenized_stories_dir]
     print("Tokenizing %i files in %s and saving in %s..." % (len(stories), stories_dir, tokenized_stories_dir))
     subprocess.call(command)
@@ -259,9 +271,9 @@ def _format_to_bert(params):
     for d in jobs:
         source, tgt = d['src'], d['tgt']
         if (args.oracle_mode == 'greedy'):
-            oracle_ids = greedy_selection(source, tgt, 3)
+            oracle_ids = greedy_selection(source, tgt, len(tgt)) # sh experiment 20200820 vorher: oracle_ids = greedy_selection(source, tgt, 3)
         elif (args.oracle_mode == 'combination'):
-            oracle_ids = combination_selection(source, tgt, 3)
+            oracle_ids = combination_selection(source, tgt, len(tgt)) # sh experiment 20200820 vorher: oracle_ids = combination_selection(source, tgt, 3)
         b_data = bert.preprocess(source, tgt, oracle_ids)
         if (b_data is None):
             continue
@@ -279,12 +291,25 @@ def format_to_lines(args):
     corpus_mapping = {}
     for corpus_type in ['valid', 'test', 'train']:
         temp = []
-        for line in open(pjoin(args.map_path, 'mapping_' + corpus_type + '.txt')):
-            temp.append(hashhex(line.strip()))
-        corpus_mapping[corpus_type] = {key.strip(): 1 for key in temp}
+        if args.map_on and args.map_path != 'empty':
+            for line in open(pjoin(args.map_path, 'mapping_' + corpus_type + '.txt')):
+                temp.append(hashhex(line.strip()))
+            corpus_mapping[corpus_type] = {key.strip(): 1 for key in temp}
+        else:
+            tr, va, te = manual_corp_assign(args)
+            corpus_mapping['valid'] = va
+            corpus_mapping['test'] = te
+            corpus_mapping['train'] = tr
     train_files, valid_files, test_files = [], [], []
-    for f in glob.glob(pjoin(args.raw_path, '*.json')):
-        real_name = f.split('/')[-1].split('.')[0]
+    # path = glob.glob(pjoin(args.raw_path, '*.json')) # sh hinzu
+    # if len(path) < 1:
+     #   path = glob.glob(pjoin(os.getcwd() + '\\' + args.raw_path, '*.json'))
+     #   print(os.getcwd() + '\\' + args.raw_path)
+    for f in glob.glob(pjoin(args.raw_path, '*.json')): # sh geändert
+        if args.map_on and args.map_path != 'empty':
+            real_name = f.split('\\')[-1].split('.')[0] #  SH geändert real_name = f.split('/')[-1].split('.')[0]
+        else:
+            real_name = f
         if (real_name in corpus_mapping['valid']):
             valid_files.append(f)
         elif (real_name in corpus_mapping['test']):
@@ -319,8 +344,42 @@ def format_to_lines(args):
                 dataset = []
 
 
+
 def _format_to_lines(params):
     f, args = params
     print(f)
     source, tgt = load_json(f, args.lower)
+    post_title = []
+    for sentence in tgt:
+        temp = ' '.join(sentence)
+        post_title.append(temp)
+    post_title = ' '.join(post_title)
+    log_write(f, post_title)
     return {'src': source, 'tgt': tgt}
+
+
+def manual_corp_assign(args):
+    if args.split_ratio > 60:
+        file_names = list(glob.glob(os.path.join(args.raw_path,'*.*')))
+        random.shuffle(file_names)
+        #print(len(file_names))
+        # valid_test_corp_length = int(args.split_ratio[3:4]) redundant
+        boarder1 = round(args.split_ratio / 100 * len(file_names))
+        train_corp = file_names[0:boarder1]
+        valid_test_corp = file_names[boarder1 + 1:len(file_names)]
+        valid_corp = valid_test_corp[:round(len(valid_test_corp)/2)]
+        test_corp = valid_test_corp[round(len(valid_test_corp)/2+1):]
+        return train_corp, valid_corp, test_corp
+    else:
+        print('Training Set too small')
+        return False
+    
+    
+log_titles = []
+
+
+def log_write(filename, pt):
+    entry = filename + ',' + pt
+    log_titles.append(entry)
+    with open('logtitles.log', 'w', newline='', encoding='utf-8') as file:
+        file.write(str(log_titles))
