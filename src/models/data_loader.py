@@ -28,10 +28,10 @@ class Batch(object):
 
             labels = torch.tensor(self._pad(pre_labels, 0))
             segs = torch.tensor(self._pad(pre_segs, 0))
-            mask = 1 - (src == 0)
+            mask = ~ (src == 0)  # mask = 1 - (src == 0) --> torch.tensor((src == 0) is None)
 
             clss = torch.tensor(self._pad(pre_clss, -1))
-            mask_cls = 1 - (clss == -1)
+            mask_cls = ~ (clss == -1)   # mask_cls = 1 - (clss == -1) --> torch.tensor((clss == -1) is None)
             clss[clss == -1] = 0
 
             setattr(self, 'clss', clss.to(device))
@@ -86,7 +86,7 @@ def load_dataset(args, corpus_type, shuffle):
         return dataset
 
     # Sort the glob output by file name (by increasing indexes).
-    pts = sorted(glob.glob(args.bert_data_path + '.' + corpus_type + '.[0-9]*.pt'))
+    pts = sorted(glob.glob(args.bert_data_path + '.' + corpus_type + '.[0-9]*.bert.pt')) # SH geändert pts = sorted(glob.glob(args.bert_data_path + '.' + corpus_type + '.[0-9]*.pt'))
     if pts:
         if (shuffle):
             random.shuffle(pts)
